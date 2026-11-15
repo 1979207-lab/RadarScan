@@ -60,7 +60,7 @@ class MainActivity:ComponentActivity(){
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable fun RadarScanApp(vm:RadarViewModel=viewModel()){
     val context=androidx.compose.ui.platform.LocalContext.current
-    val wifi=remember{context.applicationContext.getSystemService(WIFI_SERVICE) as WifiManager}
+    val wifi=remember{context.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as WifiManager}
     MaterialTheme(colorScheme=darkColorScheme(primary=Color(0xFF55D6A5),background=Color(0xFF08111C),surface=Color(0xFF132234))){
         Scaffold(topBar={TopAppBar(title={Text("RadarScan")})}){padding->
             Column(Modifier.fillMaxSize().padding(padding).padding(16.dp)){
