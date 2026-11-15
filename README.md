@@ -1,3 +1,24 @@
 # RadarScan
 
-Android Wi-Fi radar scanner. Source and GitHub Actions build will be added in the next commit.
+Android-приложение для визуального просмотра доступных Wi-Fi сетей.
+
+## Возможности текущей сборки
+- Сканирование через публичный Android `WifiManager` API.
+- Отображение SSID, BSSID, уровня сигнала, частоты, канала и capabilities.
+- Радарная визуализация: положение точки определяется уровнем сигнала и хэшем BSSID.
+- Тёмный интерфейс на Jetpack Compose.
+
+## Сборка
+- Android Studio и JDK 17.
+- minSdk 24, targetSdk 34.
+- Команда: `gradle :app:assembleDebug`.
+- APK: `app/build/outputs/apk/debug/app-debug.apk`.
+
+## GitHub Actions
+Workflow **Android APK** запускается при push в main/master или вручную через Actions. APK публикуется в Artifacts.
+
+## Разрешения и ограничения
+Для Wi-Fi сканирования включите системную геолокацию и выдайте приложению разрешение. Android регулирует частоту `WifiManager.startScan()` и может возвращать кэшированные результаты. Приложение не может обойти это ограничение через обычный публичный API.
+
+## Следующий этап
+Сканирование локальной сети, TCP-проверка RTSP/HTTP портов и ONVIF WS-Discovery должны быть добавлены отдельным модулем и протестированы на реальных устройствах. Текущая версия их пока не реализует.
