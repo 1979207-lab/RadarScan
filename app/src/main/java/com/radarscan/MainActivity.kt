@@ -298,6 +298,12 @@ fun RadarScanApp(vm: RadarViewModel = viewModel()) {
 
 @Composable
 private fun Dashboard(vm: RadarViewModel, wifi: WifiManager, context: Context) {
+    LaunchedEffect(wifi) {
+        while (true) {
+            vm.refreshRouter(context, wifi)
+            delay(5000)
+        }
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
