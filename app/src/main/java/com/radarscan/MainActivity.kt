@@ -2,6 +2,7 @@ package com.radarscan
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.wifi.WifiManager
@@ -10,6 +11,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -37,10 +39,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.InetAddress
+import java.net.URL
+import java.net.HttpURLConnection
 import java.util.Locale
 import kotlin.math.*
 
@@ -57,6 +63,7 @@ data class WifiEntry(
 data class SignalSample(val time: String, val rssi: Int)
 
 data class ChannelLoad(val channel: Int, val count: Int, val band: String)
+data class LanDevice(val ip: String, val host: String)
 
 class RadarViewModel : ViewModel() {
     var networks by mutableStateOf<List<WifiEntry>>(emptyList())
@@ -83,6 +90,145 @@ class RadarViewModel : ViewModel() {
         private set
     var lastScan by mutableStateOf("Ещё не сканировали")
         private set
+    var lanDevices by mutableStateOf<List<LanDevice>>(emptyList())
+        private set
+    var lanStatus by mutableStateOf("Сканирование локальной сети ещё не запускалось")
+        private set
+    var lanBusy by mutableStateOf(false)
+        private set
+    var internetStatus by mutableStateOf("Тест ещё не запускался")
+        private set
+    var internetBusy by mutableStateOf(false)
+        private set
+    var downloadSpeed by mutableStateOf("—")
+        private set
+    var uploadSpeed by mutableStateOf("—")
+        private set
+    var internetLatency by mutableStateOf("—")
+        private set
+    var favorites by mutableStateOf<Set<String>>(emptySet())
+        private set
+
+    fun loadFavorites(context: Context) {
+        favorites = context.getSharedPreferences("radarscan_settings", Context.MODE_PRIVATE)
+            .getStringSet("favorites", emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun toggleFavorite(context: Context, bssid: String) {
+        val next = favorites.toMutableSet()
+        if (!next.add(bssid)) next.remove(bssid)
+        favorites = next
+        context.getSharedPreferences("radarscan_settings", Context.MODE_PRIVATE)
+            .edit().putStringSet("favorites", next).apply()
+    }
+
+    fun scanLocalNetwork(context: Context, wifi: WifiManager) {
+        if (lanBusy) return
+        viewModelScope.launch {
+            lanBusy = true
+            lanStatus = "Ищу устройства в вашей Wi-Fi сети…"
+            try {
+                @Suppress("DEPRECATION")
+                val ip = wifi.connectionInfo.ipAddress
+                val local = listOf(ip and 255, ip shr 8 and 255, ip shr 16 and 255, ip shr 24 and 255)
+                if (ip == 0 || local[0] == 0) {
+                    lanStatus = "Не удалось определить локальный IP. Подключитесь к Wi-Fi."
+                    return@launch
+                }
+                val prefix = "${local[3]}.${local[2]}.${local[1]}."
+                val found = withContext(Dispatchers.IO) {
+                    (1..254).map { n ->
+                        async {
+                            val address = "$prefix$n"
+                            try {
+                                val reachable = InetAddress.getByName(address).isReachable(450)
+                                if (reachable) LanDevice(address, InetAddress.getByName(address).canonicalHostName) else null
+                            } catch (_: Exception) { null }
+                        }
+                    }.awaitAll().filterNotNull()
+                }
+                lanDevices = found.sortedBy { it.ip.substringAfterLast('.').toIntOrNull() ?: 0 }
+                lanStatus = "Найдено устройств: ${found.size}. Часть устройств может не отвечать на системную проверку."
+            } catch (_: SecurityException) {
+                lanStatus = "Нет доступа к локальной сети."
+            } catch (_: Exception) {
+                lanStatus = "Не удалось просканировать локальную сеть."
+            } finally { lanBusy = false }
+        }
+    }
+
+    fun runInternetTest() {
+        if (internetBusy) return
+        viewModelScope.launch {
+            internetBusy = true
+            internetStatus = "Проверяю соединение…"
+            downloadSpeed = "Измеряется…"
+            uploadSpeed = "Измеряется…"
+            val result = withContext(Dispatchers.IO) {
+                var down = "Не удалось"
+                var up = "Не удалось"
+                var ping = "—"
+                try {
+                    val startPing = System.nanoTime()
+                    URL("https://www.cloudflare.com/cdn-cgi/trace").openConnection().apply {
+                        connectTimeout = 6000; readTimeout = 6000
+                        getInputStream().use { it.readBytes() }
+                    }
+                    ping = "${(System.nanoTime() - startPing) / 1_000_000} мс"
+                } catch (_: Exception) { ping = "Нет ответа" }
+                try {
+                    val bytes = 5_000_000
+                    val c = (URL("https://speed.cloudflare.com/__down?bytes=$bytes").openConnection() as HttpURLConnection)
+                    c.connectTimeout = 10000; c.readTimeout = 15000
+                    val start = System.nanoTime()
+                    var total = 0L
+                    c.inputStream.use { input ->
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) { val n = input.read(buffer); if (n < 0) break; total += n }
+                    }
+                    val seconds = ((System.nanoTime() - start) / 1e9).coerceAtLeast(.001)
+                    down = String.format(Locale.getDefault(), "%.1f Мбит/с", total * 8 / seconds / 1_000_000)
+                    c.disconnect()
+                } catch (_: Exception) { }
+                try {
+                    val payload = ByteArray(1_000_000) { 65 }
+                    val c = (URL("https://speed.cloudflare.com/__up").openConnection() as HttpURLConnection)
+                    c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 10000; c.readTimeout = 15000
+                    c.setFixedLengthStreamingMode(payload.size)
+                    val start = System.nanoTime()
+                    c.outputStream.use { it.write(payload) }
+                    val code = c.responseCode
+                    val seconds = ((System.nanoTime() - start) / 1e9).coerceAtLeast(.001)
+                    if (code in 200..299) up = String.format(Locale.getDefault(), "%.1f Мбит/с", payload.size * 8 / seconds / 1_000_000)
+                    c.disconnect()
+                } catch (_: Exception) { }
+                Triple(down, up, ping)
+            }
+            downloadSpeed = result.first
+            uploadSpeed = result.second
+            internetLatency = result.third
+            internetStatus = "Тест завершён. Результаты зависят от сервера и качества Wi-Fi."
+            internetBusy = false
+        }
+    }
+
+    fun createReport(): String = buildString {
+        appendLine("RadarScan — отчёт диагностики")
+        appendLine("Дата: " + java.text.SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(java.util.Date()))
+        appendLine("Подключённая сеть: $routerName")
+        appendLine("IP шлюза: $routerIp")
+        appendLine("BSSID: $routerBssid")
+        appendLine("Сигнал: $routerRssi dBm")
+        appendLine("Частота: $routerFrequency MHz")
+        appendLine("Отклик шлюза: $latency")
+        appendLine("Интернет: ping $internetLatency, download $downloadSpeed, upload $uploadSpeed")
+        appendLine()
+        appendLine("Wi-Fi сети:")
+        networks.forEach { appendLine("${it.ssid}; ${it.bssid}; ${it.rssi} dBm; ${it.frequency} MHz; канал ${it.channel}") }
+        appendLine()
+        appendLine("Устройства локальной сети:")
+        lanDevices.forEach { appendLine("${it.ip}; ${it.host}") }
+    }
 
     @Suppress("DEPRECATION")
     fun refreshRouter(context: Context, wifi: WifiManager) {
@@ -233,7 +379,7 @@ fun RadarScanApp(vm: RadarViewModel = viewModel()) {
     var darkMode by remember { mutableStateOf(prefs.getBoolean("dark_mode", true)) }
     var tab by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) { vm.refreshRouter(context, wifi) }
+    LaunchedEffect(Unit) { vm.refreshRouter(context, wifi); vm.loadFavorites(context) }
 
     val colors = if (darkMode) {
         darkColorScheme(
@@ -279,7 +425,7 @@ fun RadarScanApp(vm: RadarViewModel = viewModel()) {
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                val tabs = listOf("Обзор", "Сети", "Каналы", "История")
+                val tabs = listOf("Обзор", "Сети", "Каналы", "История", "Устройства", "Интернет", "Анализ", "Избранное", "Роутер")
                 TabRow(selectedTabIndex = tab) {
                     tabs.forEachIndexed { index, title ->
                         Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
@@ -289,7 +435,12 @@ fun RadarScanApp(vm: RadarViewModel = viewModel()) {
                     0 -> Dashboard(vm, wifi, context)
                     1 -> NetworksScreen(vm)
                     2 -> ChannelsScreen(vm)
-                    else -> HistoryScreen(vm)
+                    3 -> HistoryScreen(vm)
+                    4 -> LanScreen(vm, context, wifi)
+                    5 -> InternetScreen(vm)
+                    6 -> WeakSpotsScreen(vm)
+                    7 -> FavoritesScreen(vm, context)
+                    else -> RouterDetailsScreen(vm)
                 }
             }
         }
@@ -375,6 +526,7 @@ private fun NetworksScreen(vm: RadarViewModel) {
                         SignalPill(network.rssi)
                     }
                     Text(network.bssid, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TextButton(onClick = { vm.toggleFavorite(LocalContext.current, network.bssid) }) { Text(if (network.bssid in vm.favorites) "★ В избранном" else "☆ В избранное") }
                     InfoLine("Сигнал", "${network.rssi} dBm · ${signalLabel(network.rssi)}")
                     InfoLine("Оценка расстояния", distanceLabel(network.distanceMeters))
                     InfoLine("Диапазон / канал", "${bandName(network.frequency)} · ${network.channel}")
@@ -578,4 +730,114 @@ private fun loadLabel(count: Int): String = when {
     count >= 5 -> "Много обнаруженных сетей"
     count >= 3 -> "Умеренное количество сетей"
     else -> "Мало обнаруженных сетей"
+}
+
+
+@Composable
+private fun LanScreen(vm: RadarViewModel, context: Context, wifi: WifiManager) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Устройства в локальной сети", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Поиск выполняется в текущей подсети Wi-Fi. Android и сетевые устройства могут блокировать такие запросы.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { vm.scanLocalNetwork(context, wifi) }, enabled = !vm.lanBusy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (vm.lanBusy) "Сканирую сеть…" else "Найти устройства")
+        }
+        Text(vm.lanStatus)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(vm.lanDevices, key = { it.ip }) { device ->
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(device.ip, fontWeight = FontWeight.Bold)
+                        Text(device.host, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InternetScreen(vm: RadarViewModel) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Проверка интернета", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Тест использует публичный сервер Cloudflare. Измерения расходуют мобильный или Wi-Fi трафик.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Button(onClick = { vm.runInternetTest() }, enabled = !vm.internetBusy, modifier = Modifier.fillMaxWidth()) {
+            Text(if (vm.internetBusy) "Выполняется тест…" else "Запустить тест скорости")
+        }
+        Text(vm.internetStatus)
+        MetricCard("Загрузка", vm.downloadSpeed, Modifier.fillMaxWidth())
+        MetricCard("Отдача", vm.uploadSpeed, Modifier.fillMaxWidth())
+        MetricCard("Отклик сервера", vm.internetLatency, Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun WeakSpotsScreen(vm: RadarViewModel) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Анализ качества Wi-Fi", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Подсказки строятся по уровню RSSI обнаруженных сетей рядом с телефоном. Для карты покрытия нужно перемещаться и повторять измерения.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (vm.networks.isEmpty()) EmptyMessage("Сначала выполните сканирование Wi-Fi.")
+        vm.networks.sortedBy { it.rssi }.forEach { network ->
+            ElevatedCard(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(network.ssid, fontWeight = FontWeight.SemiBold)
+                    SignalPill(network.rssi)
+                    Text(when {
+                        network.rssi < -80 -> "Очень слабый сигнал: попробуйте приблизиться к роутеру или убрать препятствия."
+                        network.rssi < -70 -> "Сигнал слабый: проверьте расположение роутера и помехи."
+                        network.rssi < -60 -> "Средний сигнал: для стабильной работы лучше сократить расстояние."
+                        else -> "Хороший уровень сигнала."
+                    }, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FavoritesScreen(vm: RadarViewModel, context: Context) {
+    val saved = vm.networks.filter { it.bssid in vm.favorites }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Избранные сети", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text("Избранное сохраняется на этом телефоне.")
+        if (vm.favorites.isEmpty()) EmptyMessage("Пока нет избранных сетей. Добавьте сеть на вкладке «Сети».")
+        else if (saved.isEmpty()) EmptyMessage("Сохранённые сети появятся здесь после следующего сканирования.")
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(saved, key = { it.bssid }) { network ->
+                ElevatedCard(Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(network.ssid, fontWeight = FontWeight.Bold)
+                        Text(network.bssid, style = MaterialTheme.typography.labelSmall)
+                        InfoLine("Сигнал", "${network.rssi} dBm")
+                        TextButton(onClick = { vm.toggleFavorite(context, network.bssid) }) { Text("Убрать из избранного") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RouterDetailsScreen(vm: RadarViewModel) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("Информация о роутере", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        ElevatedCard(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                InfoLine("Имя сети", vm.routerName)
+                InfoLine("IP шлюза", vm.routerIp)
+                InfoLine("BSSID", vm.routerBssid)
+                InfoLine("Производитель", "Определение по MAC может быть недоступно на Android")
+                InfoLine("Сигнал", "${vm.routerRssi} dBm")
+                InfoLine("Частота", if (vm.routerFrequency > 0) "${vm.routerFrequency} MHz" else "—")
+                InfoLine("Отклик", vm.latency)
+            }
+        }
+        Text("Android может скрывать MAC-адреса и часть сведений о сети из соображений конфиденциальности.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
