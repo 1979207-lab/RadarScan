@@ -480,6 +480,17 @@ private fun Dashboard(vm: RadarViewModel, wifi: WifiManager, context: Context) {
         Text(vm.status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Последнее сканирование: ${vm.lastScan}", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+        OutlinedButton(
+            onClick = {
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, "RadarScan — отчёт диагностики")
+                    putExtra(Intent.EXTRA_TEXT, vm.createReport())
+                }
+                context.startActivity(Intent.createChooser(share, "Экспорт отчёта"))
+            },
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("Экспортировать отчёт") }
 
         Text("Подключённый роутер", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         ElevatedCard(Modifier.fillMaxWidth()) {
