@@ -530,6 +530,7 @@ private fun NetworksScreen(vm: RadarViewModel) {
             Spacer(Modifier.height(8.dp))
         }
         items(vm.networks, key = { it.bssid }) { network ->
+            val context = LocalContext.current
             ElevatedCard(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -537,7 +538,7 @@ private fun NetworksScreen(vm: RadarViewModel) {
                         SignalPill(network.rssi)
                     }
                     Text(network.bssid, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    TextButton(onClick = { vm.toggleFavorite(LocalContext.current, network.bssid) }) { Text(if (network.bssid in vm.favorites) "★ В избранном" else "☆ В избранное") }
+                    TextButton(onClick = { vm.toggleFavorite(context, network.bssid) }) { Text(if (network.bssid in vm.favorites) "★ В избранном" else "☆ В избранное") }
                     InfoLine("Сигнал", "${network.rssi} dBm · ${signalLabel(network.rssi)}")
                     InfoLine("Оценка расстояния", distanceLabel(network.distanceMeters))
                     InfoLine("Диапазон / канал", "${bandName(network.frequency)} · ${network.channel}")
