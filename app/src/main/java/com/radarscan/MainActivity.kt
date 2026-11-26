@@ -44,7 +44,7 @@ import java.net.InetAddress
 import java.util.Locale
 import kotlin.math.*
 
-private data class WifiEntry(
+data class WifiEntry(
     val ssid: String,
     val bssid: String,
     val rssi: Int,
@@ -54,9 +54,9 @@ private data class WifiEntry(
     val distanceMeters: Double
 )
 
-private data class SignalSample(val time: String, val rssi: Int)
+data class SignalSample(val time: String, val rssi: Int)
 
-private data class ChannelLoad(val channel: Int, val count: Int, val band: String)
+data class ChannelLoad(val channel: Int, val count: Int, val band: String)
 
 class RadarViewModel : ViewModel() {
     var networks by mutableStateOf<List<WifiEntry>>(emptyList())
