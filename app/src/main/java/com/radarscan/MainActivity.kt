@@ -22,6 +22,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.Devices
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material3.*
@@ -425,12 +434,41 @@ fun RadarScanApp(vm: RadarViewModel = viewModel()) {
             }
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
-                val tabs = listOf("Обзор", "Сети", "Каналы", "История", "Устройства", "Интернет", "Анализ", "Избранное", "Роутер")
-                TabRow(selectedTabIndex = tab) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
+                val tabs = listOf(
+                    "Обзор" to Icons.Filled.Home,
+                    "Сети" to Icons.Filled.Wifi,
+                    "Каналы" to Icons.Filled.BarChart,
+                    "История" to Icons.Filled.History,
+                    "Устройства" to Icons.Filled.Devices,
+                    "Интернет" to Icons.Filled.Speed,
+                    "Анализ" to Icons.Filled.Analytics,
+                    "Избранное" to Icons.Filled.Star,
+                    "Роутер" to Icons.Filled.Router
+                )
+                ScrollableTabRow(
+                    selectedTabIndex = tab,
+                    edgePadding = 8.dp
+                ) {
+                    tabs.forEachIndexed { index, item ->
+                        Tab(
+                            selected = tab == index,
+                            onClick = { tab = index },
+                            icon = {
+                                Icon(
+                                    imageVector = item.second,
+                                    contentDescription = item.first,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        )
                     }
                 }
+                Text(
+                    "Раздел: ${tabs[tab].first}",
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 when (tab) {
                     0 -> Dashboard(vm, wifi, context)
                     1 -> NetworksScreen(vm)
