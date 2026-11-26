@@ -150,7 +150,7 @@ class RadarViewModel : ViewModel() {
                 status = when {
                     found.isEmpty() -> "Сети не найдены. Проверьте Wi-Fi и разрешения."
                     !started -> "Android ограничил новый запрос; показаны доступные результаты"
-                    else -> "Найдено сетей: \${found.size}"
+                    else -> "Найдено сетей: ${found.size}"
                 }
             } catch (_: SecurityException) {
                 status = "Нет разрешения. Разрешите доступ к устройствам поблизости и геолокации."
@@ -177,7 +177,7 @@ class RadarViewModel : ViewModel() {
                     val start = System.nanoTime()
                     val reachable = address.isReachable(1800)
                     val elapsed = (System.nanoTime() - start) / 1_000_000.0
-                    if (reachable) "\${String.format(Locale.getDefault(), "%.0f", elapsed)} мс"
+                    if (reachable) "${String.format(Locale.getDefault(), "%.0f", elapsed)} мс"
                     else "Нет ответа (возможно, ICMP заблокирован)"
                 } catch (_: Exception) {
                     "Проверка не удалась"
@@ -327,7 +327,7 @@ private fun Dashboard(vm: RadarViewModel, wifi: WifiManager, context: Context) {
             Text(if (vm.busy) "Сканирование…" else "Сканировать Wi-Fi")
         }
         Text(vm.status, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text("Последнее сканирование: \${vm.lastScan}", style = MaterialTheme.typography.labelSmall,
+        Text("Последнее сканирование: ${vm.lastScan}", style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
 
         Text("Подключённый роутер", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -336,8 +336,8 @@ private fun Dashboard(vm: RadarViewModel, wifi: WifiManager, context: Context) {
                 Text(vm.routerName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 InfoLine("Шлюз / IP роутера", vm.routerIp)
                 InfoLine("BSSID", vm.routerBssid)
-                InfoLine("Уровень сигнала", if (vm.routerRssi > -100) "\${vm.routerRssi} dBm · \${signalLabel(vm.routerRssi)}" else "Нет данных")
-                InfoLine("Частота", if (vm.routerFrequency > 0) "\${vm.routerFrequency} MHz" else "—")
+                InfoLine("Уровень сигнала", if (vm.routerRssi > -100) "${vm.routerRssi} dBm · ${signalLabel(vm.routerRssi)}" else "Нет данных")
+                InfoLine("Частота", if (vm.routerFrequency > 0) "${vm.routerFrequency} MHz" else "—")
                 InfoLine("Отклик роутера", vm.latency)
                 OutlinedButton(onClick = { vm.refreshRouter(context, wifi); vm.checkLatency() },
                     enabled = !vm.pingBusy, modifier = Modifier.fillMaxWidth()) {
@@ -375,10 +375,10 @@ private fun NetworksScreen(vm: RadarViewModel) {
                         SignalPill(network.rssi)
                     }
                     Text(network.bssid, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    InfoLine("Сигнал", "\${network.rssi} dBm · \${signalLabel(network.rssi)}")
+                    InfoLine("Сигнал", "${network.rssi} dBm · ${signalLabel(network.rssi)}")
                     InfoLine("Оценка расстояния", distanceLabel(network.distanceMeters))
-                    InfoLine("Диапазон / канал", "\${bandName(network.frequency)} · \${network.channel}")
-                    InfoLine("Частота", "\${network.frequency} MHz")
+                    InfoLine("Диапазон / канал", "${bandName(network.frequency)} · ${network.channel}")
+                    InfoLine("Частота", "${network.frequency} MHz")
                     Text(network.capabilities, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -402,8 +402,8 @@ private fun ChannelsScreen(vm: RadarViewModel) {
                 ElevatedCard(Modifier.fillMaxWidth()) {
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("\${item.band} · канал \${item.channel}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
-                            Text("\${item.count} сет.", color = loadColor(item.count), fontWeight = FontWeight.Bold)
+                            Text("${item.band} · канал ${item.channel}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                            Text("${item.count} сет.", color = loadColor(item.count), fontWeight = FontWeight.Bold)
                         }
                         LinearProgressIndicator(
                             progress = { (item.count / 8f).coerceIn(0.04f, 1f) },
@@ -438,7 +438,7 @@ private fun HistoryScreen(vm: RadarViewModel) {
             }
         }
         vm.history.asReversed().forEach { sample ->
-            InfoLine(sample.time, "\${sample.rssi} dBm · \${signalLabel(sample.rssi)}")
+            InfoLine(sample.time, "${sample.rssi} dBm · ${signalLabel(sample.rssi)}")
         }
     }
 }
@@ -525,7 +525,7 @@ private fun MetricCard(title: String, value: String, modifier: Modifier = Modifi
 @Composable
 private fun SignalPill(rssi: Int) {
     Surface(color = signalColor(rssi).copy(alpha = .16f), shape = CircleShape) {
-        Text("\${rssi} dBm", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        Text("${rssi} dBm", Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             color = signalColor(rssi), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
     }
 }
@@ -555,9 +555,9 @@ private fun distanceLabel(distance: Double): String {
     val low = (distance * .55).coerceAtLeast(.3)
     val high = (distance * 1.8).coerceAtMost(80.0)
     return if (distance < 1.0) {
-        "\${String.format(Locale.getDefault(), "%.1f", distance)} м (примерно)"
+        "${String.format(Locale.getDefault(), "%.1f", distance)} м (примерно)"
     } else {
-        "\${String.format(Locale.getDefault(), "%.1f", distance)} м · диапазон \${String.format(Locale.getDefault(), "%.1f–%.1f", low, high)} м"
+        "${String.format(Locale.getDefault(), "%.1f", distance)} м · диапазон ${String.format(Locale.getDefault(), "%.1f–%.1f", low, high)} м"
     }
 }
 
